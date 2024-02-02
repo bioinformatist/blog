@@ -1,0 +1,3 @@
+[submodule "themes/tabi"]
+	path = themes/tabi
+	url = https://kkgithub.com/welpo/tabi.git
