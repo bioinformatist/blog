@@ -1,5 +1,5 @@
 theme = "tabi"
-base_url = "https://bigdick.live/blog"
+base_url = "https://bigdick.live"
 title = "The State of Art"
 description = ""
 author = "Yu Sun"
@@ -85,7 +85,7 @@ stylesheets = []
 # Individual pages can override this in the [extra] section using canonical_url.
 # Example: "$base_url/blog/post1" will get the canonical URL "https://example.com/blog/post1".
 # Note: To ensure accuracy in terms of matching content, consider setting 'canonical_url' individually per page.
-# base_canonical_url = "https://bigdick.live/blog"
+# base_canonical_url = "https://bigdick.live"
 
 # Remote repository for your Zola site.
 # Used for `show_remote_changes` and `show_remote_source` (see below).
