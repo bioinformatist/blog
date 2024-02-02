@@ -7,6 +7,7 @@ description = "记录从0开始在STM32F407上编写Rust实现HTTP GET。"
 tags = ["Rust", "单片机", "嵌入式", "Web"]
 
 [extra]
+giscus = true
 footnote_backlinks = true
 quick_navigation_buttons = true
 insert_anchor_links = "left"
