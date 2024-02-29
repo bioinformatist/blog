@@ -34,7 +34,7 @@ toc = true
 
 我们希望OpenOCD等在不需要root权限的情况下就可以自由与开发板通讯，因此需要自定义`udev`的规则。运行`lsusb`命令列出USB设备信息，我们可能获得类似如下的内容：
 
-```pre
+```
 Bus 004 Device 001: ID 1d6b:0003 Linux Foundation 3.0 root hub
 Bus 003 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
 Bus 002 Device 002: ID 174c:3074 ASMedia Technology Inc. ASM1074 SuperSpeed hub
@@ -52,7 +52,7 @@ Bus 001 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
 
 有了`idVendor`和`idProduct`，接下来我们需要在`/etc/udev/rules.d/70-st-link.rules`文件里追加一行（若无文件则新建）[^2]：
 
-```rules
+```
 # OWNER的值请填写开发者自己使用的用户名
 ATTRS{idVendor}=="c251", ATTRS{idProduct}=="f001", OWNER="ysun"
 ```
@@ -103,7 +103,7 @@ source [find target/stm32f4x.cfg]
 
 此时，运行`openocd`，应该会有类似输出：
 
-```output
+```
 Open On-Chip Debugger 0.11.0
 Licensed under GNU GPL v2
 For bug reports, read
@@ -163,7 +163,7 @@ cargo run --example hello --release
 
 在项目根目录的memory.x文件中，写入：
 
-```x
+```ld
 MEMORY
 {
   /* NOTE 1 K = 1 KiBi = 1024 bytes */
@@ -231,13 +231,13 @@ MEMORY
 
 如果内存布局设置错误或有严重的编程失误导致内存错误，可能会在OpenOCD输出中看到类似如下报错：
 
-```output
+```
 Error: Failed to read memory at 0x2002ffd0
 ```
 
 同时GDB也会反馈类似内容：
 
-```output
+```
 0x080013aa in cortex_m_rt::HardFault_ (ef=0x0) at src/lib.rs:563
 563             atomic::compiler_fence(Ordering::SeqCst);
 ```
@@ -260,20 +260,26 @@ Error: Failed to read memory at 0x2002ffd0
   telnet localhost 4444
   ```
 3. 在telnet提示符下尝试解锁：
-  ```telnet
+  ```
   stm32f4x unlock 0
   ```
   如果顺利的话，会出现如下提示：
-  ```output
+  ```
   stm32f2x unlocked.
   INFO: a reset or power cycle is required for the new settings to take effect.
   ```
 4. 在telnet提示符下继续输入`shutdown`，然后将板子断电再通电。
 5. 如果上述过程无效，尝试在telnet提示符下使用下面的命令彻底擦除Flash存储中的内容：
-  ```telnet
+  ```
   stm32f4x mass_erase 0
   ```
   然后重复第**4**步。
+
+### 2. `cargo build`报错：cannot find linker script memory.x
+
+无论当前项目是否有子crates、目录如何组织，`memory.x`必须位于项目的根目录下（和最外层的`Cargo.toml`同级）[^4]。
+
+确实有一种特殊情况可以不提供`memory.x`文件：项目代码中直接引入了BSC (Board Support Crate)，比如[stm32f3-discovery](https://crates.io/crates/stm32f3-discovery)。除此之外，使用属于其他抽象级别的crates都必须为`cortex-m-rt`的编译提供`memory.x`[^5]。
 
 [^1]: 这里只看到`CMSIS-DAP`，没有看到STM32相关的信息。`sudo dmesg`可以在日志中看到细节：
 
@@ -284,3 +290,7 @@ Error: Failed to read memory at 0x2002ffd0
 
 [^3]: 头几个sector的大小比较小是因为许多板子并未达到`1`M的Flash大小，因此只有头几个sector，后面较大的则被舍弃了。  
 这样的设计使得不同型号的板之间的sector布局尽量保持一致，程序移植的兼容性比较好。
+
+[^4]: https://github.com/rust-lang/cargo/issues/9537
+
+[^5]: https://docs.rust-embedded.org/book/start/registers.html#memory-mapped-registers
