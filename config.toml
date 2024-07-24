@@ -1,9 +1,9 @@
 theme = "tabi"
 base_url = "https://blog.bigdick.live"
-title = "The State of Art"
+title = "State Of The Art"
 description = ""
 author = "Yu Sun"
-generate_feed = true
+generate_feeds = true
 compile_sass = true
 minify_html = true
 build_search_index = false

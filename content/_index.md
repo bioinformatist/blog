@@ -1,5 +1,4 @@
 +++
-path = "/"
 title = "最新"
 sort_by = "date"
 template = "section.html"
