@@ -1,10 +1,10 @@
 +++
 title = "家用NAS配置指北"
 date = 2024-06-13
-description = "（暂时）基于OMV"
+description = "基于OMV7"
 
 [taxonomies]
-tags = ["NAS"]
+tags = ["NAS", "OMV"]
 
 [extra]
 giscus = true
@@ -72,6 +72,101 @@ omv-salt stage run prepare
 omv-salt stage run deploy
 ```
 
+## bcache缓存
+
+> 我是使用了一段时间才苟到一块NVMe做缓存盘的。如果文件系统上有数据，理应先[备份全盘](https://wiki.omv-extras.org/doku.php?id=omv7:utilities_maint_backup#full_disk_mirroring_backup_with_rsync)。  
+> 理论上用[blocks](https://github.com/g2p/blocks)工具直接转换也是可以的，但依赖环境看着很吓人。
+
+### 确认SSD的erase block size
+
+创建高速缓存的时候尽量还是尊重一下SSD固有的erase block size，这样可以减少[write amplification](https://en.wikipedia.org/wiki/Write_amplification)现象的发生。但多数SSD的参数规格中并未提及这点，如果不想将就，可以用[flashbench](https://github.com/bradfa/flashbench)工具去猜。
+
+安装flashbench：
+
+```bash
+apt install flashbench
+```
+
+猜：
+
+```bash
+# 建议先写入一定量的随机数据，猜起来准一些
+# dd if=/dev/urandom of=/dev/nvme1n1 bs=4096 status=progress
+flashbench -a /dev/nvme1n1  --blocksize=1024
+```
+
+在我的case里，虽然pattern不甚明显，还是值得参考的：
+
+![pattern](pattern.png)
+
+### 配置缓存
+
+bcache已经并入内核很久了，但还是需要安装`bcache-tools`来配置：
+
+```bash
+apt install bcache-tools
+```
+
+先擦除文件系统，若出现`Device or resource busy`错误请参照[这节](#device-or-resource-busy)：
+
+```bash
+wipefs -a /dev/md0
+wipefs -a /dev/nvme1n1
+```
+
+然后格式化后端和缓存设备[^3]：
+
+```bash
+# 这里会创建/dev/bcache0
+make-bcache --data-offset 1290240k -B /dev/md0
+make-bcache --bucket 4M -C /dev/nvme1n1
+```
+
+搞定后检查一下uuid，并将其绑定至`/dev/bcache0`:
+
+```bash
+bcache-super-show /dev/nvme1n1 | grep cset
+echo 9b72f96d-7e85-4fd3-a78f-a283504b938c > /sys/block/bcache0/bcache/attach
+```
+
+### 后续配置
+
+到这里就可以在UI中创建Btrfs分区并且挂载了。
+
+检查状态：
+
+```bash
+cat /sys/block/bcache0/bcache/state
+```
+
+如果返回内容是`clean`，说明一切正常。
+
+修改为只用于读缓存：
+
+```bash
+echo writearound > /sys/block/bcache0/bcache/cache_mode
+```
+
+### Device or resource busy
+
+进行配置过程中常见`Device or resource busy`错误。针对不同的对象，有不同的处理方式。
+
+#### 高速缓存盘
+
+```bash
+echo 1 > /sys/fs/bcache/9b72f96d-7e85-4fd3-a78f-a283504b938c/unregister
+```
+
+#### 后端低速盘
+
+在擦除文件系统之前，后端低速盘往往已经挂载并有服务相关联，首先要先停止服务并解挂载。
+
+如果盘已经被配置作为bcache后端，则需要先停掉：
+
+```bash
+echo 1 > /sys/block/bcache0/bcache/stop
+```
+
 ## 新建用户
 
 在新建好的Btrfs分区上创建一个`home`目录作为用户的家目录。
@@ -80,7 +175,7 @@ omv-salt stage run deploy
 
 ## PhotoPrism
 
-PhotoPrism（下简称PP）虽然可以在UI里选择`openmediavault-podman`安装，但事实上由于连接速度的问题，`podman pull`拉取images的过程会非常长且在UI里没有正常的进度显示。
+PhotoPrism（下简称**PP**）虽然可以在UI里选择`openmediavault-podman`安装，但事实上由于连接速度的问题，`podman pull`拉取images的过程会非常长且在UI里没有正常的进度显示。
 
 这会大大增长（心理上的）不确定性，因此还是建议命令行安装：
 
@@ -96,7 +191,7 @@ apt install openmediavault-photoprism
 
 PP如果想在公网访问需要通过SSL加密的连接，我选用Caddy来做反代。
 
-这里因为PP已经在Podman下跑起来了，最理想的路线就是在host上直接跑Caddy[^3]。
+这里因为PP已经在Podman下跑起来了，最理想的路线就是在host上直接跑Caddy[^4]。
 
 定制Caddy（带[CF插件](https://github.com/caddy-dns/cloudflare)去编译）：
 
@@ -115,6 +210,8 @@ rm -rf /usr/local/go && rm -rf ~/go*
 
 为了使Caddy能提供稳定的代理，可以按照[官方文档](https://caddyserver.com/docs/running#linux-service)创建service。
 
+最后，为了让PP能够正确处理web请求，需要将配置好的地址绑定上：
+
 ```bash
 omv-env set -- OMV_PHOTOPRISM_APP_CONTAINER_START_OPTIONS "-e PHOTOPRISM_SITE_URL=http://localhost:2342/photo"
 omv-salt stage run prepare
@@ -128,7 +225,16 @@ omv-salt deploy run photoprism
 [^2]: OMV的文件系统环境变量：<https://docs.openmediavault.org/en/stable/various/fs_env_vars.html>  
 Btrfs挂载选项：<https://btrfs.readthedocs.io/en/latest/btrfs-man5.html#mount-options>
 
-[^3]: 我有设想和尝试过把Caddy也放在容器里运行，直接的想法就是由于Podman和Docker的容器网络互不联通，所以需要将Caddy也用Podman跑起来。
+[^3]: 如果全程按照本文配置，那就没必要在意`--data-offset`的值了。  
+这是因为OMV中通过UI创建的RAID5的stripe size默认是`512`k。可以通过如下命令查看：
+
+```bash
+mdadm -D /dev/mdX | grep Chunk
+```
+
+如果RAID是通过其他方式创建的，那么可以参考[内核文档](https://docs.kernel.org/admin-guide/bcache.html#troubleshooting-performance)里的叙述去计算这个数值。
+
+[^4]: 我有设想和尝试过把Caddy也放在容器里运行，直接的想法就是由于Podman和Docker的容器网络互不联通，所以需要将Caddy也用Podman跑起来。
 
 > 当然也可以把PP和Caddy都用Docker跑，把`podman build`替换成`docker build`就可以，但OMV既然已经提供了插件，就费事自己去抄作业/改作业了。
 
@@ -168,7 +274,7 @@ podman run -d --pod photoprism --name photoprism_caddy \
     -v caddy_data:/data \
     -v caddy_config:/config \
     -v $PWD/Caddyfile:/etc/caddy/Caddyfile \
-    -e CF_API_TOKEN=************ \
+    -e CF_API_TOKEN=the_fucking_token \
     caddy:cf
 ```
 
